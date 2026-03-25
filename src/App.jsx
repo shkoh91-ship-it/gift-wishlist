@@ -1,416 +1,458 @@
 import { useState, useEffect } from "react";
+import { supabase } from "./supabase";
 
-const EVENT_THEMES = {
-  christmas: {
-    label: "Christmas",
-    emoji: "🎄",
-    accent: "#1a6b3c",
-    accentLight: "#e8f5ee",
-    accentMid: "#2d8a52",
-    headerGrad: "linear-gradient(135deg, #0f3d24 0%, #1a6b3c 60%, #0d5530 100%)",
-    particles: ["❄️","🎄","⭐","🎁","🔔"],
-    defaultName: "Christmas 2025",
-  },
-  birthday: {
-    label: "Birthday",
-    emoji: "🎂",
-    accent: "#7c3aed",
-    accentLight: "#f3eeff",
-    accentMid: "#9461f5",
-    headerGrad: "linear-gradient(135deg, #3b1a8c 0%, #7c3aed 60%, #5b21b6 100%)",
-    particles: ["🎂","🎉","🎈","✨","🥳"],
-    defaultName: "Birthday Wishlist",
-  },
-  wedding: {
-    label: "Wedding",
-    emoji: "💍",
-    accent: "#b5863a",
-    accentLight: "#fdf6ea",
-    accentMid: "#c9973f",
-    headerGrad: "linear-gradient(135deg, #5c3d10 0%, #b5863a 60%, #8a621c 100%)",
-    particles: ["💍","💐","🥂","✨","🕊️"],
-    defaultName: "Wedding Registry",
-  },
-  baby: {
-    label: "Baby Shower",
-    emoji: "🍼",
-    accent: "#0ea5a0",
-    accentLight: "#e6fafa",
-    accentMid: "#14b8a6",
-    headerGrad: "linear-gradient(135deg, #064e4b 0%, #0ea5a0 60%, #0d8c88 100%)",
-    particles: ["🍼","⭐","🌙","🐣","💛"],
-    defaultName: "Baby Shower List",
-  },
-  housewarming: {
-    label: "Housewarming",
-    emoji: "🏠",
-    accent: "#c2500a",
-    accentLight: "#fef0e8",
-    accentMid: "#d9621a",
-    headerGrad: "linear-gradient(135deg, #6b2500 0%, #c2500a 60%, #a34008 100%)",
-    particles: ["🏠","🪴","🕯️","✨","🛋️"],
-    defaultName: "Housewarming Wishlist",
-  },
-};
-
-const SAMPLE_DATA = {
-  eventName: "Christmas 2025",
-  eventType: "christmas",
-  budget: 50,
-  members: [
-    {
-      id: 1, name: "Mom", avatar: "🧣",
-      wishes: [
-        { id: 1, item: "Cozy slippers", link: "https://amazon.com", price: 35, claimedBy: "You", note: "She mentioned these in October!", anonymous: true },
-        { id: 2, item: "Le Creuset Dutch Oven", link: "", price: 120, claimedBy: null, note: "", anonymous: false },
-      ]
-    },
-    {
-      id: 2, name: "Dad", avatar: "🧤",
-      wishes: [
-        { id: 1, item: "Noise cancelling headphones", link: "https://bestbuy.com", price: 49, claimedBy: "Sarah", note: "Splitting with me!", anonymous: true },
-        { id: 2, item: "Golf rangefinder", link: "", price: 89, claimedBy: null, note: "", anonymous: false },
-      ]
-    },
-    {
-      id: 3, name: "Sarah", avatar: "🎀",
-      wishes: [
-        { id: 1, item: "Kindle Paperwhite", link: "https://amazon.com", price: 45, claimedBy: null, note: "", anonymous: false },
-        { id: 2, item: "Yoga mat", link: "", price: 30, claimedBy: "Mom", note: "Already grabbed this one 🤫", anonymous: true },
-      ]
-    }
-  ]
-};
-
-const AVATARS = ["🎁","🧣","🧤","🎀","⭐","🍪","🕯️","🦌","❄️","🔔","🌸","🎂","🎈","💐","🏠","🪴","🍼","💍","🐣","🌙"];
+const AVATARS = ["🎁","🧸","🌿","☕","🕯️","📖","🧣","🧤","🌸","🍂","✨","🪴","🍪","🎀","💛","🌙","🦋","🍋","🐚","🪵"];
 
 export default function GiftWishlist() {
-  const [data, setData] = useState(SAMPLE_DATA);
-  const [activeMember, setActiveMember] = useState(1);
+  const [event, setEvent] = useState(null);
+  const [members, setMembers] = useState([]);
+  const [wishes, setWishes] = useState([]);
+  const [activeMember, setActiveMember] = useState(null);
+  const [loading, setLoading] = useState(true);
+
   const [showAddWish, setShowAddWish] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
   const [showClaim, setShowClaim] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showEditMember, setShowEditMember] = useState(null); // holds member object being edited
+
   const [newWish, setNewWish] = useState({ item: "", link: "", price: "" });
   const [newMember, setNewMember] = useState({ name: "", avatar: "🎁" });
+  const [editMemberData, setEditMemberData] = useState({ name: "", avatar: "🎁" });
   const [claimNote, setClaimNote] = useState("");
   const [claimerName, setClaimerName] = useState("");
   const [editBudget, setEditBudget] = useState(false);
-  const [budgetInput, setBudgetInput] = useState(data.budget);
-  const [particles, setParticles] = useState([]);
+  const [budgetInput, setBudgetInput] = useState(50);
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState("");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const theme = EVENT_THEMES[data.eventType] || EVENT_THEMES.christmas;
-  const currentMember = data.members.find(m => m.id === activeMember);
-  const totalSpent = currentMember?.wishes.filter(w => w.claimedBy).reduce((s, w) => s + (w.price || 0), 0) || 0;
-  const budgetPct = Math.min((totalSpent / data.budget) * 100, 100);
+  const currentMember = members.find(m => m.id === activeMember);
+  const currentWishes = wishes.filter(w => w.member_id === activeMember);
+  const totalSpent = currentWishes.filter(w => w.claimed_by).reduce((s, w) => s + (w.price || 0), 0);
+  const budget = event?.budget || 50;
+  const budgetPct = Math.min((totalSpent / budget) * 100, 100);
+  const overBudget = totalSpent > budget;
 
   useEffect(() => {
-    const p = Array.from({ length: 6 }, (_, i) => ({
-      id: i,
-      symbol: theme.particles[i % theme.particles.length],
-      left: `${8 + i * 16}%`,
-      delay: `${i * 1.3}s`,
-      duration: `${7 + i * 1.2}s`,
-    }));
-    setParticles(p);
-  }, [data.eventType]);
+    async function init() {
+      let { data: events } = await supabase.from("events").select("*").limit(1);
+      if (events && events.length > 0) {
+        setEvent(events[0]);
+        setBudgetInput(events[0].budget);
+        setNameInput(events[0].name);
+        await loadMembers(events[0].id);
+      } else {
+        const { data: newEvent } = await supabase.from("events")
+          .insert({ name: "Gift List", event_type: "general", budget: 50 })
+          .select().single();
+        setEvent(newEvent);
+        setBudgetInput(50);
+        setNameInput("Gift List");
+      }
+      setLoading(false);
+    }
+    init();
+  }, []);
 
-  function addWish() {
-    if (!newWish.item.trim()) return;
-    setData(d => ({ ...d, members: d.members.map(m => m.id === activeMember ? { ...m, wishes: [...m.wishes, { id: Date.now(), ...newWish, price: parseFloat(newWish.price) || 0, claimedBy: null, note: "", anonymous: false }] } : m) }));
-    setNewWish({ item: "", link: "", price: "" });
-    setShowAddWish(false);
+  async function loadMembers(eventId) {
+    const { data } = await supabase.from("members").select("*").eq("event_id", eventId).order("created_at");
+    setMembers(data || []);
+    if (data && data.length > 0) {
+      setActiveMember(data[0].id);
+      await loadWishes(data.map(m => m.id));
+    }
   }
 
-  function claimGift(wishId) {
-    if (!claimerName.trim()) return;
-    setData(d => ({ ...d, members: d.members.map(m => m.id === activeMember ? { ...m, wishes: m.wishes.map(w => w.id === wishId ? { ...w, claimedBy: claimerName, note: claimNote, anonymous: true } : w) } : m) }));
-    setShowClaim(null); setClaimNote(""); setClaimerName("");
+  async function loadWishes(memberIds) {
+    if (!memberIds.length) return;
+    const { data } = await supabase.from("wishes").select("*").in("member_id", memberIds).order("created_at");
+    setWishes(data || []);
   }
 
-  function unclaimGift(wishId) {
-    setData(d => ({ ...d, members: d.members.map(m => m.id === activeMember ? { ...m, wishes: m.wishes.map(w => w.id === wishId ? { ...w, claimedBy: null, note: "", anonymous: false } : w) } : m) }));
-  }
-
-  function addMember() {
-    if (!newMember.name.trim()) return;
-    const newId = Date.now();
-    setData(d => ({ ...d, members: [...d.members, { id: newId, name: newMember.name, avatar: newMember.avatar, wishes: [] }] }));
-    setActiveMember(newId);
+  async function addMember() {
+    if (!newMember.name.trim() || !event) return;
+    const { data } = await supabase.from("members")
+      .insert({ event_id: event.id, name: newMember.name, avatar: newMember.avatar })
+      .select().single();
+    setMembers(m => [...m, data]);
+    setActiveMember(data.id);
     setNewMember({ name: "", avatar: "🎁" });
     setShowAddMember(false);
   }
 
-  function changeEventType(type) {
-    setData(d => ({ ...d, eventType: type, eventName: EVENT_THEMES[type].defaultName }));
+  async function saveMemberEdit() {
+    if (!editMemberData.name.trim()) return;
+    const { data } = await supabase.from("members")
+      .update({ name: editMemberData.name, avatar: editMemberData.avatar })
+      .eq("id", showEditMember.id).select().single();
+    setMembers(m => m.map(x => x.id === data.id ? data : x));
+    setShowEditMember(null);
+    setShowDeleteConfirm(false);
+  }
+
+  async function deleteMember() {
+    const id = showEditMember.id;
+    await supabase.from("wishes").delete().eq("member_id", id);
+    await supabase.from("members").delete().eq("id", id);
+    const remaining = members.filter(m => m.id !== id);
+    setMembers(remaining);
+    setWishes(w => w.filter(x => x.member_id !== id));
+    setActiveMember(remaining.length > 0 ? remaining[0].id : null);
+    setShowEditMember(null);
+    setShowDeleteConfirm(false);
+  }
+
+  async function addWish() {
+    if (!newWish.item.trim() || !activeMember) return;
+    const { data } = await supabase.from("wishes")
+      .insert({ member_id: activeMember, item: newWish.item, link: newWish.link, price: parseFloat(newWish.price) || 0 })
+      .select().single();
+    setWishes(w => [...w, data]);
+    setNewWish({ item: "", link: "", price: "" });
+    setShowAddWish(false);
+  }
+
+  async function claimGift(wishId) {
+    if (!claimerName.trim()) return;
+    const { data } = await supabase.from("wishes")
+      .update({ claimed_by: claimerName, note: claimNote, anonymous: true })
+      .eq("id", wishId).select().single();
+    setWishes(w => w.map(x => x.id === wishId ? data : x));
+    setShowClaim(null); setClaimNote(""); setClaimerName("");
+  }
+
+  async function unclaimGift(wishId) {
+    const { data } = await supabase.from("wishes")
+      .update({ claimed_by: null, note: null, anonymous: false })
+      .eq("id", wishId).select().single();
+    setWishes(w => w.map(x => x.id === wishId ? data : x));
+  }
+
+  async function saveBudget() {
+    const { data } = await supabase.from("events")
+      .update({ budget: parseFloat(budgetInput) || budget })
+      .eq("id", event.id).select().single();
+    setEvent(data);
+    setEditBudget(false);
+  }
+
+  async function saveListName() {
+    if (!nameInput.trim()) return;
+    const { data } = await supabase.from("events")
+      .update({ name: nameInput })
+      .eq("id", event.id).select().single();
+    setEvent(data);
+    setEditingName(false);
   }
 
   const css = `
-    @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Jost:wght@300;400;500;600&display=swap');
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --accent: ${theme.accent};
-      --accent-light: ${theme.accentLight};
-      --surface: #ffffff;
-      --bg: #f6f6f8;
-      --text: #111118;
-      --text-muted: #888899;
-      --border: #e4e4ec;
-      --radius: 16px;
-      --shadow-sm: 0 1px 3px rgba(0,0,0,0.05), 0 2px 8px rgba(0,0,0,0.05);
-      --shadow-md: 0 2px 8px rgba(0,0,0,0.07), 0 8px 24px rgba(0,0,0,0.08);
+      --cream: #f5f0e8;
+      --cream-dark: #ede6d8;
+      --parchment: #e8dece;
+      --walnut: #3d2b1f;
+      --walnut-mid: #6b4c38;
+      --walnut-light: #9c7a62;
+      --caramel: #c49a6c;
+      --caramel-light: #f0e4d0;
+      --sage: #7a8c6e;
+      --sage-light: #edf0e8;
+      --surface: #fdfaf5;
+      --border: #e0d5c4;
+      --text: #2c1f14;
+      --text-mid: #6b4c38;
+      --text-muted: #a08878;
+      --radius: 18px;
+      --shadow-sm: 0 1px 4px rgba(61,43,31,0.06), 0 2px 12px rgba(61,43,31,0.05);
+      --shadow-md: 0 4px 16px rgba(61,43,31,0.1), 0 8px 32px rgba(61,43,31,0.08);
     }
-    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
-    .serif { font-family: 'DM Serif Display', serif; }
+    body { font-family: 'Jost', sans-serif; background: var(--cream); color: var(--text); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+    .serif { font-family: 'Cormorant Garamond', serif; }
 
-    .app-shell { min-height: 100vh; }
-
-    .header {
-      background: ${theme.headerGrad};
-      padding: 28px 22px 52px;
-      position: relative; overflow: hidden;
-    }
-    .header::after {
-      content: '';
-      position: absolute; bottom: -1px; left: 0; right: 0; height: 36px;
-      background: var(--bg); border-radius: 36px 36px 0 0;
-    }
-    .particle {
-      position: absolute; font-size: 17px; opacity: 0.15; pointer-events: none;
-      animation: floatUp var(--dur) var(--delay) infinite ease-in-out;
-    }
-    @keyframes floatUp {
-      0%   { transform: translateY(0) rotate(0deg); opacity: 0.15; }
-      50%  { opacity: 0.25; }
-      100% { transform: translateY(-90px) rotate(25deg); opacity: 0; }
-    }
-
-    .header-top { display: flex; justify-content: space-between; align-items: center; position: relative; z-index: 1; margin-bottom: 14px; }
-    .event-chip { display: inline-flex; align-items: center; gap: 5px; background: rgba(255,255,255,0.14); color: rgba(255,255,255,0.88); font-size: 11px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; padding: 5px 12px; border-radius: 100px; border: 1px solid rgba(255,255,255,0.18); }
-    .icon-btn { width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.18); color: white; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 15px; transition: background 0.15s; }
-    .icon-btn:hover { background: rgba(255,255,255,0.22); }
-    .event-title { color: white; font-size: 28px; line-height: 1.2; position: relative; z-index: 1; }
-
-    .budget-card {
-      position: relative; z-index: 1; margin-top: 16px;
-      background: rgba(255,255,255,0.11); border: 1px solid rgba(255,255,255,0.16);
-      border-radius: 14px; padding: 14px 16px;
-    }
+    .header { background: var(--walnut); padding: 32px 24px 56px; position: relative; overflow: hidden; }
+    .header::before { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at 80% 0%, rgba(196,154,108,0.18) 0%, transparent 60%), radial-gradient(ellipse at 20% 100%, rgba(196,154,108,0.12) 0%, transparent 50%); }
+    .header::after { content: ''; position: absolute; bottom: -1px; left: 0; right: 0; height: 40px; background: var(--cream); border-radius: 40px 40px 0 0; }
+    .header-inner { position: relative; z-index: 1; }
+    .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+    .wordmark { color: var(--caramel); font-family: 'Cormorant Garamond', serif; font-size: 13px; font-style: italic; letter-spacing: 1px; opacity: 0.9; }
+    .icon-btn { width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); color: rgba(255,255,255,0.75); display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 15px; transition: all 0.15s; }
+    .icon-btn:hover { background: rgba(255,255,255,0.15); color: white; }
+    .list-name-wrap { margin-bottom: 6px; }
+    .list-name { color: white; font-size: 34px; line-height: 1.15; font-style: italic; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+    .list-name:hover .edit-hint { opacity: 1; }
+    .edit-hint { opacity: 0; font-size: 13px; color: rgba(255,255,255,0.4); transition: opacity 0.15s; }
+    .list-name-input { background: rgba(255,255,255,0.1); border: 1.5px solid rgba(255,255,255,0.3); color: white; font-family: 'Cormorant Garamond', serif; font-size: 30px; font-style: italic; border-radius: 10px; padding: 4px 12px; outline: none; width: 100%; }
+    .list-subtitle { color: rgba(255,255,255,0.45); font-size: 12px; letter-spacing: 0.5px; margin-top: 4px; }
+    .budget-strip { margin-top: 20px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; padding: 14px 16px; }
     .budget-row { display: flex; justify-content: space-between; align-items: center; }
-    .budget-lbl { color: rgba(255,255,255,0.65); font-size: 10px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; }
-    .budget-val { color: white; font-size: 15px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 5px; }
-    .budget-edit-icon { opacity: 0.55; font-size: 11px; }
-    .bar { height: 4px; background: rgba(255,255,255,0.18); border-radius: 10px; margin: 10px 0 6px; overflow: hidden; }
-    .bar-inner { height: 100%; border-radius: 10px; background: rgba(255,255,255,0.7); transition: width 0.5s ease; }
-    .bar-inner.warn { background: #ffb347; }
-    .budget-note { color: rgba(255,255,255,0.55); font-size: 11px; }
+    .budget-lbl { color: rgba(255,255,255,0.5); font-size: 10px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; }
+    .budget-val { color: white; font-size: 15px; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 5px; }
+    .budget-val:hover { color: var(--caramel); }
+    .bar { height: 3px; background: rgba(255,255,255,0.15); border-radius: 10px; margin: 10px 0 6px; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 10px; background: var(--caramel); transition: width 0.5s ease; }
+    .bar-fill.warn { background: #e07b50; }
+    .budget-meta { color: rgba(255,255,255,0.4); font-size: 11px; }
     .budget-inline { display: flex; gap: 6px; align-items: center; }
-    .budget-input { width: 76px; padding: 4px 8px; border-radius: 8px; border: 1.5px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.14); color: white; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; outline: none; }
-    .budget-save-btn { background: white; color: var(--accent); border: none; border-radius: 8px; padding: 4px 10px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+    .budget-input-el { width: 76px; padding: 4px 8px; border-radius: 8px; border: 1.5px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.1); color: white; font-family: 'Jost', sans-serif; font-size: 14px; outline: none; }
+    .budget-save { background: var(--caramel); color: var(--walnut); border: none; border-radius: 8px; padding: 4px 12px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'Jost', sans-serif; }
 
-    .tabs-wrap { display: flex; gap: 7px; overflow-x: auto; padding: 14px 20px 2px; scrollbar-width: none; }
-    .tabs-wrap::-webkit-scrollbar { display: none; }
-    .tab {
-      flex-shrink: 0; display: flex; align-items: center; gap: 6px;
-      padding: 8px 15px; border-radius: 100px; cursor: pointer;
-      font-size: 13px; font-weight: 500; white-space: nowrap;
-      border: 1.5px solid var(--border); background: var(--surface);
-      color: var(--text-muted); box-shadow: var(--shadow-sm);
-      transition: all 0.15s ease;
-    }
-    .tab:hover { color: var(--text); border-color: #ccc; }
-    .tab.active { background: var(--accent); color: white; border-color: var(--accent); }
-    .tab.add { background: transparent; border-style: dashed; box-shadow: none; }
-    .tab.add:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
+    /* TABS */
+    .tabs { display: flex; gap: 8px; overflow-x: auto; padding: 16px 20px 4px; scrollbar-width: none; }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tab-wrap { position: relative; flex-shrink: 0; }
+    .tab { display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 100px; font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer; border: 1.5px solid var(--border); background: var(--surface); color: var(--text-muted); box-shadow: var(--shadow-sm); transition: all 0.15s; }
+    .tab:hover { border-color: var(--caramel); color: var(--walnut-mid); }
+    .tab.active { background: var(--walnut); color: white; border-color: var(--walnut); }
+    .tab-edit-btn { position: absolute; top: -5px; right: -5px; width: 18px; height: 18px; border-radius: 50%; background: var(--caramel); border: 1.5px solid white; color: white; font-size: 9px; display: flex; align-items: center; justify-content: center; cursor: pointer; opacity: 0; transition: opacity 0.15s; line-height: 1; }
+    .tab-wrap:hover .tab-edit-btn { opacity: 1; }
+    .tab.add { background: transparent; border-style: dashed; border-color: var(--parchment); box-shadow: none; color: var(--text-muted); flex-shrink: 0; }
+    .tab.add:hover { border-color: var(--caramel); color: var(--caramel); background: var(--caramel-light); }
 
-    .main { padding: 20px 20px 80px; max-width: 520px; margin: 0 auto; }
+    .main { padding: 20px 20px 100px; max-width: 520px; margin: 0 auto; }
+    .section-hd { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .section-title { font-size: 22px; font-style: italic; font-weight: 500; color: var(--walnut); }
+    .section-sub { color: var(--text-muted); font-size: 12px; margin-top: 2px; font-family: 'Jost', sans-serif; }
 
-    .list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
-    .list-title { font-size: 19px; }
-    .list-sub { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+    .card { background: var(--surface); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 10px; border: 1px solid var(--border); box-shadow: var(--shadow-sm); transition: all 0.18s; animation: rise 0.28s ease both; }
+    .card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); border-color: var(--parchment); }
+    @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .card-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; }
+    .card-name { font-size: 14px; font-weight: 500; color: var(--text); line-height: 1.45; }
+    .card-meta { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; margin-top: 5px; }
+    .price-tag { font-size: 13px; font-weight: 600; color: var(--caramel); }
+    .link-tag { font-size: 11px; font-weight: 500; color: var(--walnut-mid); background: var(--caramel-light); padding: 2px 8px; border-radius: 6px; text-decoration: none; transition: opacity 0.15s; }
+    .link-tag:hover { opacity: 0.7; }
+    .anon-note { margin-top: 10px; padding: 8px 12px; background: var(--cream-dark); border-radius: 10px; font-size: 12px; color: var(--text-muted); font-style: italic; border-left: 2px solid var(--caramel); }
 
-    .card {
-      background: var(--surface); border-radius: var(--radius);
-      padding: 17px 18px; margin-bottom: 9px;
-      border: 1px solid var(--border); box-shadow: var(--shadow-sm);
-      transition: box-shadow 0.18s, transform 0.18s;
-      animation: popIn 0.25s ease both;
-    }
-    .card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
-    @keyframes popIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-    .card-top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
-    .card-name { font-size: 14px; font-weight: 500; line-height: 1.4; }
-    .card-meta { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; margin-top: 5px; }
-    .price { font-size: 13px; font-weight: 600; color: var(--accent); }
-    .link-pill { font-size: 11px; font-weight: 600; color: var(--accent); background: var(--accent-light); padding: 2px 8px; border-radius: 6px; text-decoration: none; }
-    .link-pill:hover { opacity: 0.75; }
-    .anon-note { margin-top: 9px; padding: 8px 11px; background: var(--bg); border-radius: 9px; font-size: 12px; color: var(--text-muted); font-style: italic; border-left: 3px solid var(--accent-light); }
+    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 11px; border-radius: 100px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+    .badge-claimed { background: var(--sage-light); color: var(--sage); border: 1px solid #c8d4c0; }
+    .badge-unclaim { display: block; margin-top: 4px; background: none; border: none; color: var(--text-muted); font-size: 10px; cursor: pointer; font-family: 'Jost', sans-serif; padding: 0; text-align: right; }
+    .badge-unclaim:hover { color: #b05040; }
+    .badge-claim { background: var(--caramel-light); color: var(--walnut-mid); border: 1.5px solid transparent; cursor: pointer; transition: all 0.15s; }
+    .badge-claim:hover { border-color: var(--caramel); background: #e8d4b8; }
 
-    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 100px; font-size: 11px; font-weight: 600; white-space: nowrap; }
-    .badge-ok { background: #edfaf0; color: #1b7a37; border: 1px solid #c3e8cd; }
-    .badge-claim { background: var(--accent-light); color: var(--accent); border: 1.5px solid transparent; cursor: pointer; transition: border-color 0.15s; }
-    .badge-claim:hover { border-color: var(--accent); }
-    .undo-btn { display: block; margin-top: 3px; background: none; border: none; color: var(--text-muted); font-size: 10px; cursor: pointer; font-family: 'DM Sans', sans-serif; padding: 0; text-align: right; }
-    .undo-btn:hover { color: #d9344a; }
-
-    .summary { background: var(--surface); border-radius: var(--radius); padding: 16px 18px; border: 1px solid var(--border); margin-top: 4px; }
+    .summary { background: var(--cream-dark); border-radius: var(--radius); padding: 16px 18px; border: 1px solid var(--border); margin-top: 6px; }
     .sum-row { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-muted); padding: 4px 0; }
-    .sum-row b { font-weight: 600; color: var(--text); }
-    .sum-row.pos b { color: #1b7a37; }
-    .sum-row.neg b { color: #c92a2a; }
+    .sum-row span:last-child { font-weight: 600; color: var(--text-mid); }
+    .sum-row.pos span:last-child { color: var(--sage); }
+    .sum-row.neg span:last-child { color: #b05040; }
     .sum-divider { height: 1px; background: var(--border); margin: 6px 0; }
 
-    .empty { text-align: center; padding: 52px 20px; color: var(--text-muted); }
-    .empty-icon { font-size: 42px; display: block; margin-bottom: 10px; }
+    .empty { text-align: center; padding: 52px 24px; color: var(--text-muted); }
+    .empty-icon { font-size: 40px; display: block; margin-bottom: 12px; }
 
-    .btn { font-family: 'DM Sans', sans-serif; font-weight: 600; cursor: pointer; border: none; border-radius: 12px; transition: all 0.15s; }
-    .btn-accent { background: var(--accent); color: white; padding: 10px 18px; font-size: 13px; }
-    .btn-accent:hover { filter: brightness(1.08); }
-    .btn-ghost { background: var(--bg); color: var(--text); padding: 10px 18px; font-size: 13px; border: 1px solid var(--border); }
-    .btn-ghost:hover { background: var(--border); }
-    .btn-sm { padding: 7px 14px; font-size: 12px; border-radius: 10px; }
+    .btn { font-family: 'Jost', sans-serif; font-weight: 500; cursor: pointer; border: none; border-radius: 12px; transition: all 0.15s; }
+    .btn-primary { background: var(--walnut); color: white; padding: 11px 20px; font-size: 13px; }
+    .btn-primary:hover { background: var(--walnut-mid); }
+    .btn-ghost { background: var(--cream-dark); color: var(--text); padding: 11px 20px; font-size: 13px; border: 1px solid var(--border); }
+    .btn-ghost:hover { background: var(--parchment); }
+    .btn-danger { background: #fdf0ee; color: #b05040; padding: 11px 20px; font-size: 13px; border: 1.5px solid #f0c8c0; }
+    .btn-danger:hover { background: #f8e0dc; }
+    .btn-sm { padding: 7px 15px; font-size: 12px; border-radius: 10px; }
 
-    .overlay { position: fixed; inset: 0; background: rgba(10,10,20,0.38); backdrop-filter: blur(5px); display: flex; align-items: flex-end; justify-content: center; z-index: 300; padding: 12px; animation: fadeIn 0.18s; }
-    .modal { background: var(--surface); border-radius: 22px; padding: 26px 22px; width: 100%; max-width: 460px; animation: slideUp 0.26s cubic-bezier(0.34,1.5,0.64,1); }
+    .overlay { position: fixed; inset: 0; background: rgba(44,31,20,0.45); backdrop-filter: blur(6px); display: flex; align-items: flex-end; justify-content: center; z-index: 300; padding: 12px; animation: fadeIn 0.2s; }
+    .modal { background: var(--surface); border-radius: 24px; padding: 28px 24px; width: 100%; max-width: 460px; animation: slideUp 0.28s cubic-bezier(0.34,1.5,0.64,1); border: 1px solid var(--border); }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-    @keyframes slideUp { from { transform: translateY(44px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-    .modal-title { font-size: 21px; margin-bottom: 3px; }
-    .modal-sub { color: var(--text-muted); font-size: 13px; margin-bottom: 20px; }
-
-    .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 13px; }
-    .field label { font-size: 10px; font-weight: 700; color: var(--text-muted); letter-spacing: 1px; text-transform: uppercase; }
-    .field input { padding: 10px 13px; border: 1.5px solid var(--border); border-radius: 10px; font-size: 14px; font-family: 'DM Sans', sans-serif; color: var(--text); background: var(--bg); outline: none; transition: border-color 0.15s, background 0.15s; }
-    .field input:focus { border-color: var(--accent); background: white; }
-
-    .modal-btns { display: flex; gap: 9px; margin-top: 6px; }
+    @keyframes slideUp { from { transform: translateY(48px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .modal-title { font-size: 24px; font-style: italic; color: var(--walnut); margin-bottom: 4px; }
+    .modal-sub { color: var(--text-muted); font-size: 13px; margin-bottom: 22px; }
+    .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
+    .field label { font-size: 10px; font-weight: 600; color: var(--text-muted); letter-spacing: 1.2px; text-transform: uppercase; }
+    .field input { padding: 11px 14px; border: 1.5px solid var(--border); border-radius: 11px; font-size: 14px; font-family: 'Jost', sans-serif; color: var(--text); background: var(--cream); outline: none; transition: all 0.15s; }
+    .field input:focus { border-color: var(--caramel); background: white; box-shadow: 0 0 0 3px rgba(196,154,108,0.12); }
+    .modal-btns { display: flex; gap: 10px; margin-top: 8px; }
     .modal-btns .btn { flex: 1; }
+    .modal-divider { height: 1px; background: var(--border); margin: 20px 0 16px; }
 
-    .event-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-bottom: 18px; }
-    .event-opt { padding: 13px; border-radius: 13px; border: 2px solid var(--border); background: var(--bg); cursor: pointer; display: flex; align-items: center; gap: 9px; transition: all 0.15s; font-family: 'DM Sans', sans-serif; }
-    .event-opt:hover { border-color: var(--accent); background: var(--accent-light); }
-    .event-opt.sel { border-color: var(--accent); background: var(--accent-light); }
-    .event-opt span:first-child { font-size: 21px; }
-    .event-opt strong { font-size: 13px; font-weight: 600; color: var(--text); }
+    .av-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+    .av { width: 42px; height: 42px; border-radius: 50%; border: 2px solid var(--border); background: var(--cream); font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.13s; }
+    .av:hover { border-color: var(--caramel); transform: scale(1.05); }
+    .av.sel { border-color: var(--walnut); background: var(--caramel-light); }
 
-    .avatar-grid { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 6px; }
-    .av { width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--border); background: var(--bg); font-size: 19px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.13s; }
-    .av:hover { border-color: var(--accent); }
-    .av.sel { border-color: var(--accent); background: var(--accent-light); }
+    .delete-zone { background: #fdf0ee; border-radius: 14px; padding: 16px; border: 1px solid #f0c8c0; }
+    .delete-zone p { font-size: 13px; color: #8a4030; margin-bottom: 12px; line-height: 1.5; }
   `;
 
+  if (loading) return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: "#f5f0e8", flexDirection: "column", gap: 12 }}>
+      <span style={{ fontSize: 36 }}>🕯️</span>
+      <p style={{ fontFamily: "'Jost', sans-serif", color: "#9c7a62", fontSize: 13, letterSpacing: 1 }}>Loading your list...</p>
+    </div>
+  );
+
   return (
-    <div className="app-shell">
+    <div>
       <style>{css}</style>
 
       {/* HEADER */}
       <div className="header">
-        {particles.map(p => (
-          <span key={p.id} className="particle" style={{ left: p.left, bottom: "18%", "--delay": p.delay, "--dur": p.duration }}>{p.symbol}</span>
-        ))}
-        <div className="header-top">
-          <span className="event-chip">{theme.emoji} {theme.label}</span>
-          <button className="icon-btn" onClick={() => setShowSettings(true)} title="Settings">⚙</button>
-        </div>
-        <h1 className="serif event-title">{data.eventName}</h1>
-        <div className="budget-card">
-          <div className="budget-row">
-            <span className="budget-lbl">Budget per person</span>
-            {editBudget ? (
-              <div className="budget-inline">
-                <input className="budget-input" type="number" value={budgetInput} onChange={e => setBudgetInput(e.target.value)} autoFocus onKeyDown={e => e.key === "Enter" && (() => { setData(d => ({ ...d, budget: parseFloat(budgetInput) || d.budget })); setEditBudget(false); })()} />
-                <button className="budget-save-btn" onClick={() => { setData(d => ({ ...d, budget: parseFloat(budgetInput) || d.budget })); setEditBudget(false); }}>Save</button>
-              </div>
-            ) : (
-              <span className="budget-val" onClick={() => setEditBudget(true)}>${data.budget} <span className="budget-edit-icon">✎</span></span>
-            )}
+        <div className="header-inner">
+          <div className="header-top">
+            <span className="wordmark">giftlist</span>
+            <button className="icon-btn" onClick={() => setShowSettings(true)}>⚙</button>
           </div>
-          <div className="bar"><div className={`bar-inner${budgetPct > 90 ? " warn" : ""}`} style={{ width: `${budgetPct}%` }} /></div>
-          <div className="budget-note">${totalSpent} claimed for {currentMember?.name} · ${Math.max(0, data.budget - totalSpent)} remaining</div>
+          <div className="list-name-wrap">
+            {editingName ? (
+              <input className="list-name-input" value={nameInput} onChange={e => setNameInput(e.target.value)} onBlur={saveListName} onKeyDown={e => e.key === "Enter" && saveListName()} autoFocus />
+            ) : (
+              <div className="list-name serif" onClick={() => setEditingName(true)}>
+                {event?.name}<span className="edit-hint">✎</span>
+              </div>
+            )}
+            <div className="list-subtitle">{members.length} people · {wishes.length} wishes total</div>
+          </div>
+          <div className="budget-strip">
+            <div className="budget-row">
+              <span className="budget-lbl">Budget per person</span>
+              {editBudget ? (
+                <div className="budget-inline">
+                  <input className="budget-input-el" type="number" value={budgetInput} onChange={e => setBudgetInput(e.target.value)} autoFocus onKeyDown={e => e.key === "Enter" && saveBudget()} />
+                  <button className="budget-save" onClick={saveBudget}>Save</button>
+                </div>
+              ) : (
+                <span className="budget-val" onClick={() => setEditBudget(true)}>${budget} <span style={{ opacity: 0.5, fontSize: 11 }}>✎</span></span>
+              )}
+            </div>
+            <div className="bar"><div className={`bar-fill${overBudget ? " warn" : ""}`} style={{ width: `${budgetPct}%` }} /></div>
+            <div className="budget-meta">${totalSpent} claimed for {currentMember?.name || "—"} · ${Math.max(0, budget - totalSpent)} remaining</div>
+          </div>
         </div>
       </div>
 
       {/* TABS */}
-      <div className="tabs-wrap">
-        {data.members.map(m => (
-          <button key={m.id} className={`tab${activeMember === m.id ? " active" : ""}`} onClick={() => setActiveMember(m.id)}>
-            {m.avatar} {m.name}
-          </button>
+      <div className="tabs">
+        {members.map(m => (
+          <div key={m.id} className="tab-wrap">
+            <button className={`tab${activeMember === m.id ? " active" : ""}`} onClick={() => setActiveMember(m.id)}>
+              {m.avatar} {m.name}
+            </button>
+            <button className="tab-edit-btn" onClick={() => { setShowEditMember(m); setEditMemberData({ name: m.name, avatar: m.avatar }); setShowDeleteConfirm(false); }} title="Edit">✎</button>
+          </div>
         ))}
-        <button className="tab add" onClick={() => setShowAddMember(true)}>+ Add</button>
+        <button className="tab add" onClick={() => setShowAddMember(true)}>+ Add person</button>
       </div>
 
-      {/* LIST */}
+      {/* WISH LIST */}
       <div className="main">
-        <div className="list-header">
-          <div>
-            <div className="serif list-title">{currentMember?.avatar} {currentMember?.name}'s Wishes</div>
-            <div className="list-sub">{currentMember?.wishes.length} items · {currentMember?.wishes.filter(w => w.claimedBy).length} claimed</div>
-          </div>
-          <button className="btn btn-accent btn-sm" onClick={() => setShowAddWish(true)}>+ Add wish</button>
-        </div>
-
-        {currentMember?.wishes.length === 0 && (
+        {!currentMember ? (
           <div className="empty">
-            <span className="empty-icon">🎁</span>
-            <p className="serif" style={{ fontSize: "19px", marginBottom: "5px" }}>No wishes yet</p>
-            <p style={{ fontSize: "13px" }}>Add the first item to get started</p>
+            <span className="empty-icon">🌿</span>
+            <p className="serif" style={{ fontSize: "22px", color: "#3d2b1f", marginBottom: 6 }}>Add your first person</p>
+            <p style={{ fontSize: "13px" }}>Tap "+ Add person" above to get started</p>
           </div>
-        )}
-
-        {currentMember?.wishes.map((wish, i) => (
-          <div key={wish.id} className="card" style={{ animationDelay: `${i * 0.05}s` }}>
-            <div className="card-top">
-              <div style={{ flex: 1 }}>
-                <div className="card-name">{wish.item}</div>
-                <div className="card-meta">
-                  {wish.price > 0 && <span className="price">${wish.price}</span>}
-                  {wish.link && <a href={wish.link} target="_blank" rel="noopener noreferrer" className="link-pill">🔗 View</a>}
-                </div>
-                {wish.claimedBy && wish.note && <div className="anon-note">💬 "{wish.note}"</div>}
+        ) : (
+          <>
+            <div className="section-hd">
+              <div>
+                <div className="serif section-title">{currentMember.avatar} {currentMember.name}'s Wishes</div>
+                <div className="section-sub">{currentWishes.length} items · {currentWishes.filter(w => w.claimed_by).length} claimed</div>
               </div>
-              <div style={{ flexShrink: 0, textAlign: "right" }}>
-                {wish.claimedBy ? (
-                  <>
-                    <span className="badge badge-ok">✓ {wish.anonymous ? "Claimed" : `by ${wish.claimedBy}`}</span>
-                    <button className="undo-btn" onClick={() => unclaimGift(wish.id)}>undo</button>
-                  </>
-                ) : (
-                  <span className="badge badge-claim" onClick={() => setShowClaim(wish.id)}>🎁 Claim</span>
-                )}
+              <button className="btn btn-primary btn-sm" onClick={() => setShowAddWish(true)}>+ Add wish</button>
+            </div>
+
+            {currentWishes.length === 0 && (
+              <div className="empty">
+                <span className="empty-icon">🎁</span>
+                <p className="serif" style={{ fontSize: "20px", color: "#3d2b1f", marginBottom: 6 }}>No wishes yet</p>
+                <p style={{ fontSize: "13px" }}>Add the first item to get started</p>
+              </div>
+            )}
+
+            {currentWishes.map((wish, i) => (
+              <div key={wish.id} className="card" style={{ animationDelay: `${i * 0.05}s` }}>
+                <div className="card-row">
+                  <div style={{ flex: 1 }}>
+                    <div className="card-name">{wish.item}</div>
+                    <div className="card-meta">
+                      {wish.price > 0 && <span className="price-tag">${wish.price}</span>}
+                      {wish.link && <a href={wish.link} target="_blank" rel="noopener noreferrer" className="link-tag">🔗 View item</a>}
+                    </div>
+                    {wish.claimed_by && wish.note && <div className="anon-note">💬 "{wish.note}"</div>}
+                  </div>
+                  <div style={{ flexShrink: 0, textAlign: "right" }}>
+                    {wish.claimed_by ? (
+                      <>
+                        <span className="badge badge-claimed">✓ {wish.anonymous ? "Claimed" : `by ${wish.claimed_by}`}</span>
+                        <button className="badge-unclaim" onClick={() => unclaimGift(wish.id)}>undo</button>
+                      </>
+                    ) : (
+                      <span className="badge badge-claim" onClick={() => setShowClaim(wish.id)}>🎁 Claim</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {currentWishes.length > 0 && (
+              <div className="summary">
+                <div className="sum-row"><span>Total list value</span><span>${currentWishes.reduce((s, w) => s + (w.price || 0), 0)}</span></div>
+                <div className="sum-divider" />
+                <div className="sum-row pos"><span>Claimed so far</span><span>${totalSpent}</span></div>
+                <div className={`sum-row${budget - totalSpent < 0 ? " neg" : " pos"}`}>
+                  <span>Budget remaining</span><span>${budget - totalSpent}</span>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* EDIT MEMBER MODAL */}
+      {showEditMember && (
+        <div className="overlay" onClick={() => { setShowEditMember(null); setShowDeleteConfirm(false); }}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="serif modal-title">Edit Person</div>
+            <div className="modal-sub">Update {showEditMember.name}'s name or icon</div>
+            <div className="field">
+              <label>Name</label>
+              <input value={editMemberData.name} onChange={e => setEditMemberData(d => ({ ...d, name: e.target.value }))} autoFocus />
+            </div>
+            <div className="field">
+              <label>Icon</label>
+              <div className="av-grid">
+                {AVATARS.map(a => (
+                  <button key={a} className={`av${editMemberData.avatar === a ? " sel" : ""}`} onClick={() => setEditMemberData(d => ({ ...d, avatar: a }))}>{a}</button>
+                ))}
               </div>
             </div>
-          </div>
-        ))}
+            <div className="modal-btns" style={{ marginBottom: 0 }}>
+              <button className="btn btn-ghost" onClick={() => { setShowEditMember(null); setShowDeleteConfirm(false); }}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveMemberEdit}>Save changes</button>
+            </div>
 
-        {currentMember?.wishes.length > 0 && (
-          <div className="summary">
-            <div className="sum-row"><span>Total list value</span><b>${currentMember.wishes.reduce((s, w) => s + (w.price || 0), 0)}</b></div>
-            <div className="sum-divider" />
-            <div className="sum-row pos"><span>Claimed so far</span><b>${totalSpent}</b></div>
-            <div className={`sum-row${data.budget - totalSpent < 0 ? " neg" : " pos"}`}><span>Budget remaining</span><b>${data.budget - totalSpent}</b></div>
+            <div className="modal-divider" />
+
+            {!showDeleteConfirm ? (
+              <button className="btn btn-danger" style={{ width: "100%" }} onClick={() => setShowDeleteConfirm(true)}>
+                Remove {showEditMember.name} from list
+              </button>
+            ) : (
+              <div className="delete-zone">
+                <p>This will permanently delete <strong>{showEditMember.name}</strong> and all their wishes. This cannot be undone.</p>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => setShowDeleteConfirm(false)}>Keep them</button>
+                  <button className="btn btn-danger btn-sm" style={{ flex: 1 }} onClick={deleteMember}>Yes, delete</button>
+                </div>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* SETTINGS MODAL */}
       {showSettings && (
         <div className="overlay" onClick={() => setShowSettings(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="serif modal-title">Event Settings</div>
-            <div className="modal-sub">Choose your event type and name</div>
-            <div className="event-grid">
-              {Object.entries(EVENT_THEMES).map(([key, t]) => (
-                <button key={key} className={`event-opt${data.eventType === key ? " sel" : ""}`} onClick={() => changeEventType(key)}>
-                  <span>{t.emoji}</span><strong>{t.label}</strong>
-                </button>
-              ))}
-            </div>
-            <div className="field">
-              <label>Event Name</label>
-              <input value={data.eventName} onChange={e => setData(d => ({ ...d, eventName: e.target.value }))} placeholder="e.g. Sarah's 30th" />
-            </div>
+            <div className="serif modal-title">List Settings</div>
+            <div className="modal-sub">Rename your list or update the budget</div>
+            <div className="field"><label>List Name</label><input value={nameInput} onChange={e => setNameInput(e.target.value)} placeholder="e.g. Christmas 2025" /></div>
+            <div className="field"><label>Budget per person ($)</label><input type="number" value={budgetInput} onChange={e => setBudgetInput(e.target.value)} placeholder="50" /></div>
             <div className="modal-btns">
-              <button className="btn btn-accent" onClick={() => setShowSettings(false)}>Done</button>
+              <button className="btn btn-ghost" onClick={() => setShowSettings(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={async () => { await saveListName(); await saveBudget(); setShowSettings(false); }}>Save</button>
             </div>
           </div>
         </div>
@@ -420,14 +462,14 @@ export default function GiftWishlist() {
       {showAddWish && (
         <div className="overlay" onClick={() => setShowAddWish(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="serif modal-title">Add a Wish ✨</div>
+            <div className="serif modal-title">Add a Wish</div>
             <div className="modal-sub">Adding to {currentMember?.name}'s list</div>
-            <div className="field"><label>Gift idea *</label><input placeholder="e.g. Cozy slippers" value={newWish.item} onChange={e => setNewWish({ ...newWish, item: e.target.value })} autoFocus /></div>
+            <div className="field"><label>Gift idea *</label><input placeholder="e.g. Linen throw blanket" value={newWish.item} onChange={e => setNewWish({ ...newWish, item: e.target.value })} autoFocus /></div>
             <div className="field"><label>Link (optional)</label><input placeholder="https://..." value={newWish.link} onChange={e => setNewWish({ ...newWish, link: e.target.value })} /></div>
             <div className="field"><label>Price</label><input type="number" placeholder="$0" value={newWish.price} onChange={e => setNewWish({ ...newWish, price: e.target.value })} /></div>
             <div className="modal-btns">
               <button className="btn btn-ghost" onClick={() => setShowAddWish(false)}>Cancel</button>
-              <button className="btn btn-accent" onClick={addWish}>Add wish 🎁</button>
+              <button className="btn btn-primary" onClick={addWish}>Add wish</button>
             </div>
           </div>
         </div>
@@ -438,12 +480,12 @@ export default function GiftWishlist() {
         <div className="overlay" onClick={() => setShowClaim(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="serif modal-title">Claim this gift 🤫</div>
-            <div className="modal-sub">Your name stays hidden from {currentMember?.name}!</div>
+            <div className="modal-sub">Your name stays hidden from {currentMember?.name}</div>
             <div className="field"><label>Your name</label><input placeholder="e.g. Sarah" value={claimerName} onChange={e => setClaimerName(e.target.value)} autoFocus /></div>
             <div className="field"><label>Anonymous note (optional)</label><input placeholder="e.g. Splitting with Mom!" value={claimNote} onChange={e => setClaimNote(e.target.value)} /></div>
             <div className="modal-btns">
               <button className="btn btn-ghost" onClick={() => setShowClaim(null)}>Cancel</button>
-              <button className="btn btn-accent" onClick={() => claimGift(showClaim)}>Claim it 🎁</button>
+              <button className="btn btn-primary" onClick={() => claimGift(showClaim)}>Claim it</button>
             </div>
           </div>
         </div>
@@ -455,16 +497,16 @@ export default function GiftWishlist() {
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="serif modal-title">Add a person</div>
             <div className="modal-sub">They'll get their own wishlist</div>
-            <div className="field"><label>Name</label><input placeholder="e.g. Grandma" value={newMember.name} onChange={e => setNewMember({ ...newMember, name: e.target.value })} autoFocus /></div>
+            <div className="field"><label>Name</label><input placeholder="e.g. Mom" value={newMember.name} onChange={e => setNewMember({ ...newMember, name: e.target.value })} autoFocus /></div>
             <div className="field">
               <label>Pick an emoji</label>
-              <div className="avatar-grid">
+              <div className="av-grid">
                 {AVATARS.map(a => <button key={a} className={`av${newMember.avatar === a ? " sel" : ""}`} onClick={() => setNewMember({ ...newMember, avatar: a })}>{a}</button>)}
               </div>
             </div>
             <div className="modal-btns">
               <button className="btn btn-ghost" onClick={() => setShowAddMember(false)}>Cancel</button>
-              <button className="btn btn-accent" onClick={addMember}>Add person</button>
+              <button className="btn btn-primary" onClick={addMember}>Add person</button>
             </div>
           </div>
         </div>
