@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "./supabase";
+import { Analytics } from '@vercel/analytics/react';
 
 const AVATARS = ["🎁","🧸","🌿","☕","🕯️","📖","🧣","🧤","🌸","🍂","✨","🪴","🍪","🎀","💛","🌙","🦋","🍋","🐚","🪵"];
 
@@ -528,6 +529,7 @@ async function fetchLinkPreview(url) {
           </div>
         </div>
       )}
+      <Analytics />
     </div>
   );
 }
