@@ -104,14 +104,15 @@ export default function GiftWishlist() {
   }
 
   async function addWish() {
-    if (!newWish.item.trim() || !activeMember) return;
-    const { data } = await supabase.from("wishes")
-      .insert({ member_id: activeMember, item: newWish.item, link: newWish.link, price: parseFloat(newWish.price) || 0 })
-      .select().single();
-    setWishes(w => [...w, data]);
-    setNewWish({ item: "", link: "", price: "" });
-    setShowAddWish(false);
-  }
+  if (!newWish.item.trim() || !activeMember) return;
+  const preview = await fetchLinkPreview(newWish.link);
+  const { data } = await supabase.from("wishes")
+    .insert({ member_id: activeMember, item: newWish.item, link: newWish.link, price: parseFloat(newWish.price) || 0, img: preview?.img || "", item_title: preview?.item_title || "" })
+    .select().single();
+  setWishes(w => [...w, data]);
+  setNewWish({ item: "", link: "", price: "" });
+  setShowAddWish(false);
+}
 
   async function claimGift(wishId) {
     if (!claimerName.trim()) return;
@@ -128,6 +129,20 @@ export default function GiftWishlist() {
       .eq("id", wishId).select().single();
     setWishes(w => w.map(x => x.id === wishId ? data : x));
   }
+
+  async function deleteWish(wishId) {
+  await supabase.from("wishes").delete().eq("id", wishId);
+  setWishes(w => w.filter(x => x.id !== wishId));
+}
+
+async function fetchLinkPreview(url) {
+  if (!url) return null;
+  try {
+    const res = await fetch(`https://api.microlink.io?url=${encodeURIComponent(url)}`);
+    const json = await res.json();
+    return { img: json.data?.image?.url || "", item_title: json.data?.title || "" };
+  } catch { return null; }
+}
 
   async function saveBudget() {
     const { data } = await supabase.from("events")
@@ -371,16 +386,18 @@ export default function GiftWishlist() {
                       {wish.link && <a href={wish.link} target="_blank" rel="noopener noreferrer" className="link-tag">🔗 View item</a>}
                     </div>
                     {wish.claimed_by && wish.note && <div className="anon-note">💬 "{wish.note}"</div>}
+                    {wish.img && <img src={wish.img} alt={wish.item} onError={e => e.target.style.display='none'} style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: 10, marginTop: 10 }} />}
                   </div>
                   <div style={{ flexShrink: 0, textAlign: "right" }}>
                     {wish.claimed_by ? (
-                      <>
-                        <span className="badge badge-claimed">✓ {wish.anonymous ? "Claimed" : `by ${wish.claimed_by}`}</span>
-                        <button className="badge-unclaim" onClick={() => unclaimGift(wish.id)}>undo</button>
-                      </>
-                    ) : (
-                      <span className="badge badge-claim" onClick={() => setShowClaim(wish.id)}>🎁 Claim</span>
-                    )}
+  <>
+    <span className="badge badge-claimed">✓ {wish.anonymous ? "Claimed" : `by ${wish.claimed_by}`}</span>
+    <button className="badge-unclaim" onClick={() => unclaimGift(wish.id)}>undo</button>
+  </>
+) : (
+  <span className="badge badge-claim" onClick={() => setShowClaim(wish.id)}>🎁 Claim</span>
+)}
+<button className="badge-unclaim" onClick={() => deleteWish(wish.id)}>delete</button>
                   </div>
                 </div>
               </div>
